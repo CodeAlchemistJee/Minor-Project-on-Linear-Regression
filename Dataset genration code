@@ -1,0 +1,67 @@
+import pandas as pd
+import numpy as np
+
+# Set random seed for reproducibility
+np.random.seed(42)
+
+# Number of properties
+n_samples = 10000
+
+# 1. Generate Features based on constraints
+area = np.random.randint(800, 6000, n_samples)              # Area: 800 to 6000 sq ft
+bedrooms = np.random.randint(1, 7, n_samples)               # Bedrooms: 1 to 6
+bathrooms = np.random.randint(1, 6, n_samples)              # Bathrooms: 1 to 5
+age = np.random.randint(0, 101, n_samples)                  # Age: 0 to 100 years
+distance_city = np.round(np.random.uniform(0.5, 40.0, n_samples), 2) # Distance: 0.5 to 40 miles
+crime_rate = np.round(np.random.uniform(1.0, 60.0, n_samples), 2)    # Crime rate per 1000
+school_rating = np.random.randint(1, 11, n_samples)         # School rating: 1 to 10
+garage = np.random.randint(0, 4, n_samples)                 # Garage spaces: 0 to 3
+
+# Basement: Assuming roughly 50% of houses have no basement
+has_basement = np.random.choice([0, 1], n_samples)
+basement = has_basement * np.random.randint(300, 1500, n_samples)
+
+# 2. Generate Target Variable (Price)
+# We apply realistic weights to the features so models can find actual correlations.
+base_price = 100000
+price_calculation = (
+    base_price +
+    (area * 150) +                # +$150 per sq ft
+    (bedrooms * 10000) +          # +$10k per bedroom
+    (bathrooms * 15000) -         # +$15k per bathroom
+    (age * 1000) -                # -$1k per year of age
+    (distance_city * 2000) -      # -$2k per mile from city
+    (crime_rate * 800) +          # -$800 per crime rate unit
+    (school_rating * 12000) +     # +$12k per school rating point
+    (garage * 12000) +            # +$12k per garage space
+    (basement * 50)               # +$50 per basement sq ft
+)
+
+# Add random noise (Gaussian) to simulate real-world variance
+noise = np.random.normal(loc=0, scale=30000, size=n_samples)
+price = np.round(price_calculation + noise, 2)
+
+# Ensure no unrealistic negative or extremely low prices due to noise/penalties
+price = np.where(price < 50000, 50000, price)
+
+# 3. Compile into a DataFrame
+df = pd.DataFrame({
+    'area': area,
+    'bedrooms': bedrooms,
+    'bathrooms': bathrooms,
+    'age': age,
+    'distance_city': distance_city,
+    'crime_rate': crime_rate,
+    'school_rating': school_rating,
+    'garage': garage,
+    'basement': basement,
+    'price': price
+})
+
+# 4. Save to CSV
+file_name = 'synthetic_real_estate_10k.csv'
+df.to_csv(file_name, index=False)
+
+print(f"Dataset successfully created and saved as '{file_name}'.")
+print("\nDataset Preview:")
+print(df.head())
