@@ -1,0 +1,158 @@
+import numpy as np
+import pandas as pd
+import scipy.stats as stats
+import matplotlib.pyplot as plt
+
+# ==========================================
+# 1. EVALUATION METRICS (FROM SCRATCH)
+# ==========================================
+def calculate_metrics(y_true, y_pred, p=1):
+    n = len(y_true)
+    
+    # Core calculations
+    mse = np.mean((y_true - y_pred)**2)
+    rmse = np.sqrt(mse)
+    mae = np.mean(np.abs(y_true - y_pred))
+    mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+    
+    # R-Squared & Adjusted R-Squared
+    ss_res = np.sum((y_true - y_pred)**2)
+    ss_tot = np.sum((y_true - np.mean(y_true))**2)
+    r2 = 1 - (ss_res / ss_tot)
+    
+    adj_r2 = 1 - ((1 - r2) * (n - 1) / (n - p - 1))
+    
+    return {'R2': r2, 'Adj_R2': adj_r2, 'RMSE': rmse, 'MAE': mae, 'MAPE': mape}
+
+# ==========================================
+# 2. BOOTSTRAP CONFIDENCE INTERVALS
+# ==========================================
+def bootstrap_rmse(y_true, y_pred, n_iterations=1000, alpha=0.05):
+    """Calculates 95% Confidence Intervals for RMSE using Bootstrapping"""
+    n_size = len(y_true)
+    rmses = []
+    
+    for _ in range(n_iterations):
+        # Sample with replacement
+        indices = np.random.choice(range(n_size), size=n_size, replace=True)
+        sample_true = y_true[indices]
+        sample_pred = y_pred[indices]
+        
+        rmse = np.sqrt(np.mean((sample_true - sample_pred)**2))
+        rmses.append(rmse)
+        
+    lower = np.percentile(rmses, (alpha/2) * 100)
+    upper = np.percentile(rmses, (1 - alpha/2) * 100)
+    return np.mean(rmses), lower, upper
+
+# ==========================================
+# 3. STATISTICAL SIGNIFICANCE (PAIRED T-TEST)
+# ==========================================
+def paired_t_test(y_true, y_pred1, y_pred2):
+    """Tests if Model 1 is significantly different from Model 2"""
+    err1 = np.abs(y_true - y_pred1)
+    err2 = np.abs(y_true - y_pred2)
+    
+    diff = err1 - err2
+    n = len(diff)
+    mean_diff = np.mean(diff)
+    std_diff = np.std(diff, ddof=1)
+    
+    t_stat = mean_diff / (std_diff / np.sqrt(n))
+    # Two-tailed p-value
+    p_value = stats.t.sf(np.abs(t_stat), n-1) * 2 
+    
+    return t_stat, p_value
+
+# ==========================================
+# 4. MOCK DATA & BASE MODELS
+# ==========================================
+np.random.seed(42)
+n = 1000
+X = np.random.uniform(1000, 5000, n)
+y = 50000 + (X * 150) - (0.01 * X**2) + np.random.normal(0, 30000, n)
+
+# Train/Val/Test Split for Stacking
+X_train, y_train = X[:600], y[:600]
+X_val, y_val = X[600:800], y[600:800]
+X_test, y_test = X[800:], y[800:]
+
+# Dummy implementations of our previous models for Stacking
+def simple_ridge_fit_predict(X_tr, y_tr, X_te):
+    X_b = np.c_[np.ones(len(X_tr)), X_tr]
+    X_b_te = np.c_[np.ones(len(X_te)), X_te]
+    I = np.eye(2); I[0,0] = 0
+    w = np.linalg.inv(X_b.T.dot(X_b) + 10 * I).dot(X_b.T).dot(y_tr)
+    return X_b_te.dot(w)
+
+def simple_poly_fit_predict(X_tr, y_tr, X_te):
+    X_p = np.c_[np.ones(len(X_tr)), X_tr, X_tr**2]
+    X_p_te = np.c_[np.ones(len(X_te)), X_te, X_te**2]
+    w = np.linalg.inv(X_p.T.dot(X_p)).dot(X_p.T).dot(y_tr)
+    return X_p_te.dot(w)
+
+# ==========================================
+# 5. MODEL STACKING (ENSEMBLING)
+# ==========================================
+print("--- TRAINING BASE MODELS ---")
+# 1. Train base models and predict on Validation to create Meta-Features
+val_pred_ridge = simple_ridge_fit_predict(X_train, y_train, X_val)
+val_pred_poly = simple_poly_fit_predict(X_train, y_train, X_val)
+
+# 2. Meta-Learner Data (The predictions are the new features)
+X_meta_val = np.c_[val_pred_ridge, val_pred_poly]
+
+# 3. Train Meta-Learner (Simple Linear Regression) on Meta-Features
+X_meta_b = np.c_[np.ones(len(X_meta_val)), X_meta_val]
+meta_weights = np.linalg.inv(X_meta_b.T.dot(X_meta_b)).dot(X_meta_b.T).dot(y_val)
+
+# 4. Final Testing Pipeline
+test_pred_ridge = simple_ridge_fit_predict(X_train, y_train, X_test)
+test_pred_poly = simple_poly_fit_predict(X_train, y_train, X_test)
+
+X_meta_test = np.c_[test_pred_ridge, test_pred_poly]
+X_meta_test_b = np.c_[np.ones(len(X_meta_test)), X_meta_test]
+ensemble_preds = X_meta_test_b.dot(meta_weights)
+
+# ==========================================
+# 6. EVALUATION OUTPUTS
+# ==========================================
+print("\n--- METRICS ---")
+metrics = calculate_metrics(y_test, ensemble_preds, p=2)
+for k, v in metrics.items():
+    print(f"{k}: {v:,.2f}")
+
+print("\n--- BOOTSTRAP CONFIDENCE INTERVAL (RMSE) ---")
+mean_rmse, low, high = bootstrap_rmse(y_test, ensemble_preds)
+print(f"95% CI for RMSE: [{low:,.0f}, {high:,.0f}]")
+
+print("\n--- STATISTICAL SIGNIFICANCE ---")
+t_stat, p_val = paired_t_test(y_test, test_pred_ridge, ensemble_preds)
+print(f"T-Statistic (Ridge vs Ensemble): {t_stat:.4f}")
+print(f"P-Value: {p_val:.4f} (If < 0.05, the Ensemble is statistically better!)")
+
+# ==========================================
+# 7. PREDICTION INTERVAL PLOT
+# ==========================================
+plt.figure(figsize=(10, 6))
+
+# Sort for clean line plotting
+sort_idx = np.argsort(X_test)
+X_test_sorted = X_test[sort_idx]
+y_test_sorted = y_test[sort_idx]
+ensemble_sorted = ensemble_preds[sort_idx]
+
+plt.scatter(X_test, y_test, alpha=0.5, label='Actual Test Data', color='gray')
+plt.plot(X_test_sorted, ensemble_sorted, color='red', linewidth=2, label='Stacked Ensemble Prediction')
+
+# Simulate prediction intervals (+/- 1.96 * RMSE)
+interval = 1.96 * metrics['RMSE']
+plt.fill_between(X_test_sorted, ensemble_sorted - interval, ensemble_sorted + interval, 
+                 color='red', alpha=0.15, label='95% Prediction Interval')
+
+plt.title('Final Stacked Meta-Model Predictions with Intervals')
+plt.xlabel('Area (sq ft)')
+plt.ylabel('Price ($)')
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.show()
