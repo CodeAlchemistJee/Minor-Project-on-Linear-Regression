@@ -1,0 +1,168 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import scipy.stats as stats
+
+# ==========================================
+# 1. THE ALGORITHM
+# ==========================================
+class SimpleLinearRegression:
+    def __init__(self, learning_rate=0.01, iterations=1000, tolerance=1e-6, decay_rate=0.0):
+        self.lr = learning_rate
+        self.iterations = iterations
+        self.tolerance = tolerance
+        self.decay_rate = decay_rate
+        self.theta_0 = 0.0 # Intercept
+        self.theta_1 = 0.0 # Slope
+        self.cost_history = []
+
+    def fit(self, X, y):
+        n = len(X)
+        self.cost_history = [] # Reset on fit
+        
+        for i in range(self.iterations):
+            # 1. Calculate predictions
+            y_pred = self.theta_0 + self.theta_1 * X
+            
+            # 2. Calculate error and cost
+            error = y_pred - y
+            cost = (1 / (2 * n)) * np.sum(error**2)
+            self.cost_history.append(cost)
+            
+            # Convergence Check
+            if i > 0 and abs(self.cost_history[-2] - self.cost_history[-1]) < self.tolerance:
+                print(f"Model converged at iteration {i}!")
+                break
+                
+            # 3. Calculate gradients
+            d_theta_0 = (1 / n) * np.sum(error)
+            d_theta_1 = (1 / n) * np.sum(error * X)
+            
+            # 4. Learning Rate Scheduling
+            current_lr = self.lr * (1.0 / (1.0 + self.decay_rate * i))
+            
+            # 5. Update parameters
+            self.theta_0 -= current_lr * d_theta_0
+            self.theta_1 -= current_lr * d_theta_1
+            
+    def predict(self, X):
+        return self.theta_0 + self.theta_1 * X
+
+# ==========================================
+# 2. CREATE MOCK DATASET (With missing values & outliers)
+# ==========================================
+np.random.seed(42)
+n = 1000
+area_raw = np.random.normal(2000, 500, n)
+price_raw = 50000 + (area_raw * 150) + np.random.normal(0, 30000, n)
+
+df = pd.DataFrame({'area': area_raw, 'price': price_raw})
+
+# Inject missing values (NaN) and Outliers to test our cleaning methods
+df.loc[0:20, 'area'] = np.nan 
+df.loc[21:30, 'area'] = [15000, 16000, -500, 20000, 18000, 14000, -100, 19000, 21000, 17500] 
+
+# ==========================================
+# 3. DATA PREPROCESSING (Analysis Tasks)
+# ==========================================
+print(f"Original dataset shape: {df.shape}")
+
+# Handle Missing Values
+df['area_mean_imputed'] = df['area'].fillna(df['area'].mean())
+df['area_median_imputed'] = df['area'].fillna(df['area'].median())
+
+# We'll proceed with median imputed data as it's more robust to the outliers we injected
+df['area_clean'] = df['area_median_imputed']
+
+# Remove Outliers using IQR method
+Q1 = df['area_clean'].quantile(0.25)
+Q3 = df['area_clean'].quantile(0.75)
+IQR = Q3 - Q1
+
+lower_bound = Q1 - 1.5 * IQR
+upper_bound = Q3 + 1.5 * IQR
+
+# Filter the dataframe
+df_clean = df[(df['area_clean'] >= lower_bound) & (df['area_clean'] <= upper_bound)].copy()
+print(f"Dataset shape after IQR outlier removal: {df_clean.shape}")
+
+# ==========================================
+# 4. PREPARE DATA FOR GRADIENT DESCENT
+# ==========================================
+# Gradient Descent REQUIRES scaling, otherwise gradients explode to infinity (NaN)
+X_raw = df_clean['area_clean'].values
+y_raw = df_clean['price'].values
+
+X_mean, X_std = X_raw.mean(), X_raw.std()
+y_mean, y_std = y_raw.mean(), y_raw.std()
+
+# Standardize features (Z-score normalization)
+X_scaled = (X_raw - X_mean) / X_std
+y_scaled = (y_raw - y_mean) / y_std
+
+# ==========================================
+# 5. TRAIN THE MODEL
+# ==========================================
+model = SimpleLinearRegression(learning_rate=0.1, iterations=1000, tolerance=1e-6)
+model.fit(X_scaled, y_scaled)
+
+# Make predictions on scaled data
+y_pred_scaled = model.predict(X_scaled)
+
+# Unscale the predictions back to real dollar amounts
+y_pred = (y_pred_scaled * y_std) + y_mean
+
+# ==========================================
+# 6. CONFIDENCE INTERVALS
+# ==========================================
+# Calculate Standard Error of the Estimate (Syx)
+residuals = y_raw - y_pred
+sse = np.sum(residuals**2)
+n_clean = len(X_raw)
+syx = np.sqrt(sse / (n_clean - 2))
+
+# Calculate 95% Confidence Interval bands
+t_val = stats.t.ppf(0.975, n_clean - 2) # t-critical value
+ssx = np.sum((X_raw - X_mean)**2)
+margin_of_error = t_val * syx * np.sqrt((1/n_clean) + ((X_raw - X_mean)**2 / ssx))
+
+ci_upper = y_pred + margin_of_error
+ci_lower = y_pred - margin_of_error
+
+# ==========================================
+# 7. VISUALIZATIONS & DIAGNOSTICS
+# ==========================================
+fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+
+# Plot 1: Cost Function Convergence
+axs[0].plot(model.cost_history, color='purple', linewidth=2)
+axs[0].set_title('Cost Function Convergence')
+axs[0].set_xlabel('Iterations')
+axs[0].set_ylabel('Mean Squared Error (Scaled)')
+axs[0].grid(True, alpha=0.3)
+
+# Plot 2: Regression Line & Confidence Intervals
+# Sort values so the line plots cleanly left-to-right
+sort_idx = np.argsort(X_raw)
+X_sorted = X_raw[sort_idx]
+y_pred_sorted = y_pred[sort_idx]
+ci_lower_sorted = ci_lower[sort_idx]
+ci_upper_sorted = ci_upper[sort_idx]
+
+axs[1].scatter(X_raw, y_raw, alpha=0.5, label='Actual Data', color='blue')
+axs[1].plot(X_sorted, y_pred_sorted, color='red', linewidth=2, label='Regression Line')
+axs[1].fill_between(X_sorted, ci_lower_sorted, ci_upper_sorted, color='red', alpha=0.2, label='95% Confidence Band')
+axs[1].set_title('Price vs. Area Predictions')
+axs[1].set_xlabel('Area (sq ft)')
+axs[1].set_ylabel('Price ($)')
+axs[1].legend()
+
+# Plot 3: Residual Plot (Assumption check)
+axs[2].scatter(y_pred, residuals, alpha=0.5, color='green')
+axs[2].axhline(y=0, color='red', linestyle='--')
+axs[2].set_title('Residual Plot (Homoscedasticity Check)')
+axs[2].set_xlabel('Predicted Price')
+axs[2].set_ylabel('Residuals (Actual - Predicted)')
+
+plt.tight_layout()
+plt.show()
