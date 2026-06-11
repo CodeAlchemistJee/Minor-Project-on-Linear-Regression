@@ -6,7 +6,7 @@
 
 This repository contains a comprehensive, multi-stage implementation of foundational Machine Learning regression algorithms built **entirely from scratch** (without the use of `scikit-learn`). 
 
-The project focuses on predicting real estate prices based on various property features, transitioning from basic univariate analysis to advanced polynomial expansions and regularization techniques.
+The project focuses on predicting real estate prices based on various property features, transitioning from basic univariate analysis to advanced polynomial expansions, regularization techniques, and final meta-model stacking.
 
 ## 📑 Table of Contents
 1. [Project Overview](#project-overview)
@@ -16,11 +16,11 @@ The project focuses on predicting real estate prices based on various property f
 5. [Usage](#usage)
 
 ## 🎯 Project Overview
-The objective of this project is to demonstrate a deep mathematical understanding of how machine learning models learn. By writing gradient descent algorithms, matrix operations, and cross-validation loops natively in Python, this project explores the underlying mechanics of statistical modeling, feature engineering, and the bias-variance tradeoff.
+The objective of this project is to demonstrate a deep mathematical understanding of how machine learning models learn. By writing gradient descent algorithms, matrix operations, cross-validation loops, and statistical tests natively in Python, this project explores the underlying mechanics of statistical modeling, feature engineering, the bias-variance tradeoff, and model ensembling.
 
 ## 📂 Repository Structure
 
-The project is divided into three distinct phases of increasing complexity:
+The project is divided into four distinct phases of increasing complexity:
 
 ### `Part_1_Simple_Linear_Regression.py`
 Focuses on establishing the baseline relationship between property Area and Price.
@@ -42,11 +42,20 @@ Introduces non-linear modeling to capture complex market dynamics (e.g., diminis
 * **Model Selection:** Akaike Information Criterion (AIC) and Bayesian Information Criterion (BIC) scoring.
 * **Advanced Features:** Piecewise Polynomials (Splines) and Kernel Ridge Regression (Polynomial Kernel) using matrix operations.
 
+### `Part_4_Model_Selection_And_Stacking.py`
+Focuses on rigorous statistical evaluation and combining previous models into a high-performance ensemble.
+* **Evaluation Metrics:** Custom implementations of R², Adjusted R², RMSE, MAE, and MAPE.
+* **Statistical Rigor:** Bootstrap Confidence Intervals for RMSE and Paired T-Tests for significance testing.
+* **Ensembling:** Stacking Meta-Learner that combines Ridge Regression and Polynomial Regression predictions.
+* **Business Application:** Generation of 95% Prediction Intervals for automated valuation model (AVM) confidence bounds.
+
 ## ✨ Key Features & Algorithms Built from Scratch
 * **Gradient Descent Engine:** Complete with learning rate scheduling/decay and tolerance-based convergence criteria.
 * **Z-Score Standardization:** Crucial for preventing gradient explosion in high-degree polynomial matrices.
 * **K-Fold CV Generator:** Custom indexing and shuffling logic for robust model evaluation.
 * **AIC / BIC Calculators:** Mathematical implementations penalizing model complexity to prevent overfitting.
+* **Meta-Ensemble Stacking:** Combining multiple base models and training a meta-learner on their predictions to optimize accuracy.
+* **Statistical Testing Suite:** Bootstrapping for confidence intervals and paired T-tests for determining model significance.
 * **Data Synthesizer:** Built-in numpy data generators to simulate realistic real estate markets with injected noise, missing values, and right-skewed outliers.
 
 ## ⚙️ Installation & Requirements
