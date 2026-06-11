@@ -1,0 +1,172 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from itertools import combinations
+
+# ==========================================
+# 1. ADVANCED MULTIPLE REGRESSION CLASS
+# ==========================================
+class MultipleLinearRegression:
+    def __init__(self, method='normal_equation', reg_type=None, lambda_=0.1, lr=0.01, iterations=1000):
+        self.method = method       # 'normal_equation' or 'gradient_descent'
+        self.reg_type = reg_type   # None, 'l1' (Lasso), or 'l2' (Ridge)
+        self.lambda_ = lambda_     # Regularization penalty parameter
+        self.lr = lr
+        self.iterations = iterations
+        self.weights = None
+        
+    def fit(self, X, y):
+        m, n = X.shape
+        # Add column of 1s for the intercept (bias)
+        X_b = np.c_[np.ones((m, 1)), X]
+        
+        if self.method == 'normal_equation':
+            # Theta = (X^T * X + lambda * I)^-1 * X^T * y
+            if self.reg_type == 'l2':
+                I = np.eye(n + 1)
+                I[0, 0] = 0 # NEVER regularize the intercept
+                self.weights = np.linalg.inv(X_b.T.dot(X_b) + self.lambda_ * I).dot(X_b.T).dot(y)
+            elif self.reg_type == 'l1':
+                raise ValueError("L1 (Lasso) cannot be solved via Normal Equation directly. Use gradient_descent.")
+            else:
+                self.weights = np.linalg.inv(X_b.T.dot(X_b)).dot(X_b.T).dot(y)
+                
+        elif self.method == 'gradient_descent':
+            self.weights = np.zeros(n + 1)
+            for _ in range(self.iterations):
+                y_pred = X_b.dot(self.weights)
+                error = y_pred - y
+                gradients = (1/m) * X_b.T.dot(error)
+                
+                # Add Regularization Penalties to Gradients
+                if self.reg_type == 'l2': # Ridge
+                    reg_term = (self.lambda_/m) * self.weights
+                    reg_term[0] = 0 
+                    gradients += reg_term
+                elif self.reg_type == 'l1': # Lasso
+                    reg_term = (self.lambda_/m) * np.sign(self.weights)
+                    reg_term[0] = 0
+                    gradients += reg_term
+                    
+                self.weights -= self.lr * gradients
+
+    def predict(self, X):
+        X_b = np.c_[np.ones((X.shape[0], 1)), X]
+        return X_b.dot(self.weights)
+
+# ==========================================
+# 2. K-FOLD CROSS VALIDATION (FROM SCRATCH)
+# ==========================================
+def k_fold_cv(X, y, k=5, model_params={}):
+    fold_size = len(X) // k
+    indices = np.arange(len(X))
+    np.random.shuffle(indices) # Shuffle for randomness
+    
+    mses = []
+    for i in range(k):
+        test_idx = indices[i*fold_size : (i+1)*fold_size]
+        train_idx = np.concatenate([indices[:i*fold_size], indices[(i+1)*fold_size:]])
+        
+        X_train, y_train = X[train_idx], y[train_idx]
+        X_test, y_test = X[test_idx], y[test_idx]
+        
+        model = MultipleLinearRegression(**model_params)
+        model.fit(X_train, y_train)
+        preds = model.predict(X_test)
+        
+        mse = np.mean((preds - y_test)**2)
+        mses.append(mse)
+        
+    return np.mean(mses)
+
+# ==========================================
+# 3. VIF & MULTICOLLINEARITY ANALYSIS
+# ==========================================
+def calculate_vif(X_scaled, feature_names):
+    """Calculates Variance Inflation Factor: VIF = 1 / (1 - R^2)"""
+    vif_data = []
+    for i in range(X_scaled.shape[1]):
+        y_i = X_scaled[:, i]
+        X_i = np.delete(X_scaled, i, axis=1)
+        
+        # Predict one feature using all other features
+        model = MultipleLinearRegression(method='normal_equation')
+        model.fit(X_i, y_i)
+        preds = model.predict(X_i)
+        
+        ss_tot = np.sum((y_i - np.mean(y_i))**2)
+        ss_res = np.sum((y_i - preds)**2)
+        r_squared = 1 - (ss_res / ss_tot)
+        
+        # Prevent division by zero if R^2 is exactly 1
+        vif = 1 / (1 - r_squared) if r_squared < 1 else float('inf')
+        vif_data.append((feature_names[i], vif))
+        
+    return pd.DataFrame(vif_data, columns=['Feature', 'VIF']).sort_values('VIF', ascending=False)
+
+# ==========================================
+# 4. DATA PREP & FEATURE ENGINEERING 
+# ==========================================
+# Generating mock data similar to previous constraints for a self-contained script
+np.random.seed(42)
+n = 1000
+area = np.random.randint(800, 6000, n)
+bedrooms = np.random.randint(1, 6, n)
+bathrooms = np.random.randint(1, 4, n)
+age = np.random.randint(0, 50, n)
+# Categorical variable creation
+neighborhoods = np.random.choice(['Urban', 'Suburb', 'Rural'], n) 
+
+base_price = 50000 + (area*150) + (bedrooms*10000) - (age*1000)
+price = base_price + np.random.normal(0, 20000, n)
+
+df = pd.DataFrame({'area': area, 'bedrooms': bedrooms, 'bathrooms': bathrooms, 
+                   'age': age, 'neighborhood': neighborhoods, 'price': price})
+
+# A. Handle Categorical Variables (One-Hot Encoding from scratch)
+dummies = pd.get_dummies(df['neighborhood'], drop_first=True, dtype=int)
+df = pd.concat([df, dummies], axis=1).drop('neighborhood', axis=1)
+
+# B. Create Interaction Terms (Area * Bedrooms often heavily impact price)
+df['area_x_bedrooms'] = df['area'] * df['bedrooms']
+
+X_raw = df.drop('price', axis=1).values
+y_raw = df['price'].values
+feature_names = df.drop('price', axis=1).columns.tolist()
+
+# C. Feature Scaling (Z-Score Normalization)
+X_scaled = (X_raw - np.mean(X_raw, axis=0)) / np.std(X_raw, axis=0)
+y_scaled = (y_raw - np.mean(y_raw)) / np.std(y_raw)
+
+# ==========================================
+# 5. EXECUTE ANALYSES & ADVANCED CHALLENGES
+# ==========================================
+print("--- 1. MULTICOLLINEARITY (VIF) ANALYSIS ---")
+vif_df = calculate_vif(X_scaled, feature_names)
+print(vif_df.to_string(index=False))
+print("\n*Note: VIF > 5 indicates high multicollinearity.*\n")
+
+print("--- 2. CROSS-VALIDATION & REGULARIZATION OPTIMIZATION ---")
+lambdas = [0, 0.1, 1.0, 10.0, 50.0]
+cv_results = []
+
+for lam in lambdas:
+    # Test Unregularized (lambda=0), Ridge (L2), and Lasso (L1)
+    mse_l2 = k_fold_cv(X_scaled, y_scaled, k=5, 
+                       model_params={'method':'gradient_descent', 'reg_type':'l2', 'lambda_':lam})
+    mse_l1 = k_fold_cv(X_scaled, y_scaled, k=5, 
+                       model_params={'method':'gradient_descent', 'reg_type':'l1', 'lambda_':lam})
+    
+    cv_results.append({'Lambda': lam, 'Ridge (L2) MSE': mse_l2, 'Lasso (L1) MSE': mse_l1})
+
+cv_df = pd.DataFrame(cv_results)
+print(cv_df.to_string(index=False))
+
+# --- 3. FEATURE IMPORTANCE (LASSO EFFECT) ---
+print("\n--- 3. FEATURE IMPORTANCE (Lasso Feature Selection) ---")
+final_model = MultipleLinearRegression(method='gradient_descent', reg_type='l1', lambda_=10.0)
+final_model.fit(X_scaled, y_scaled)
+
+importance_df = pd.DataFrame({'Feature': ['Intercept'] + feature_names, 'Weight': final_model.weights})
+# Filter out weights that Lasso pushed to zero
+print(importance_df[np.abs(importance_df['Weight']) > 0.001].to_string(index=False))
